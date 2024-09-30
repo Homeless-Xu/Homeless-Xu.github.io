@@ -1,0 +1,189 @@
+---
+title: VPN WierGuard Demo: VPS + Ros ✔️
+layout: home
+---
+
+
+
+🔵 Goal  ✅
+
+	VPS: have Public IP. 
+	Ros: No   Public IP. 
+
+	有公网IP的 全球都能访问.  
+	没公网IP的 只有本地可以访问.
+
+	要全球可以访问没公网IP的设备. 必须用一个公网IP 作为跳板. 
+	通过VPN 把VPS 和Ros 连起来后.   就可以全球都可以访问Ros. 就是内网穿透.
+
+    一般是本地路由器 和 VPS 组VPN. 
+	因为本地路由器本身可以访问本地所有网段. 
+	配置好后 服务器VPS 也可以访问本地所有网段.
+
+	硬件路由器/防火墙不支持WG的话. 可以用虚拟机路由器. 比如Ros的CHR版本.
+
+
+🔵 网络架构 ✅
+
+	Local_Client      ➜ Local_Router: ROS     ➜  Public_Server: VPS 
+						VPN_Client               VPN_Server
+						10.0.0.92/32             10.0.0.1/32
+	10.111.111.0/24     10.111.111.92/24
+	10.222.222.0/24
+	192.168.9.0/24
+
+
+
+
+🔵 配置总结 
+
+
+🔶 密钥介绍
+	一般带公网IP的VPN服务器只有一个.
+	一般没公网IP的VPN客户端可以有很多个.
+
+	所有要建立vpn连接的设备 都需要生成一对密钥.
+
+	服务器只要生成一对密钥.
+	每个客户端都需要生成一对密钥.
+
+	每个客户端的公钥  要配置到服务器的 配置文件.
+	服务器的公钥     要配置到客户端的 配置文件. 
+
+
+🔶 allowed address 介绍
+
+	这个是决定VPN路由的关键参数! 必须理解.
+
+	决定哪些ip 是要用vpn 来发给对方的! 相当于过滤器. 
+
+	首先 VPN网卡本身 是必须允许的. 不然vpn都建立不起来.
+
+	然后如果是翻墙. 过滤是在 VPN 客户端配置的.
+	如果是内网穿透. 过滤是在 VPN 服务器配置的. 
+
+	0.0.0.0/0       ➜  允许全部允许. 就是所有流量都走vpn端口. 
+	192.168.9.0/24  ➜  允许192.xxx  只允许这个网段走VPN.
+
+
+🔶 allow ip Demo (内网穿透)
+
+	VPN 服务器 allowedIPS: 允许VPN客户端网卡 + 要穿透的网段. 
+	VPN 客户端 allowedIPS: 允许VPN服务器网卡
+
+	内网穿透 数据先到服务器. 所有过滤是在服务器端设置.
+	至于vpn网卡. 那时搭建vpn必须开启的.
+
+
+🔶 keepalive 
+	25秒
+	这个也是必须的. 
+	客户端是没有公网ip的.  服务器才有公网IP. 
+	客户端可以随时连上服务器. 服务器是连不进客户端的. 
+	只能客户端持续发起请求.比如每25秒一次请求. 这样双方才能一直保持连接. 服务器才能随时穿透到内网.
+	不然客户端一段时间不活动 是会自动断开连接的. 断开后服务器是连不进来的
+
+
+
+🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵 Key Generate: Server + client 
+
+🔵 Server: Debian
+	
+	wg genkey                      ➜ use this generte private key
+	echo "PrivateKey" | wg pubkey  ➜ use private key generate public key 
+
+
+	VPS.D12 ~ wg genkey
+	EJo1+8gS1GWe+Aa6Wk2vDQgTixkkltpNCBKwOBOGtlI=
+	VPS.D12 ~ ls
+	VPS.D12 ~ echo "EJo1+8gS1GWe+Aa6Wk2vDQgTixkkltpNCBKwOBOGtlI=" | wg pubkey
+	1bPZcpX5MRyeMRaEDCroTlEKWazsI7pPqCQaiwEmfhM=
+
+
+🔵 Client: Ros CHR  
+
+	wireguard >> wireguard >> create new   ➜ auto create a pair for you
+
+
+
+🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵 Server Config   
+
+🔵 vps 创建配置文件 
+
+[Interface]
+# set wg server ip and mask. 
+# set ip not ip range so use /32
+Address = 10.0.0.1/32
+PrivateKey = EJo1+8gS1GWe+Aa6Wk2vDQgTixkkltpNCBKwOBOGtlI=
+ListenPort = 4455
+
+
+# Ros_CHR-M920_VM
+[Peer]
+PublicKey = 8Cm4FruYWEYESsFb1Mw1JhK7OTNnKEOn7n7QSRKGsl4=
+# 下面写上去的ip. 会自动加到服务器的路由表里. 所有下面加上的ip段会通过vpn网卡转发
+AllowedIPs = 10.0.0.92/32, 10.111.111.0/24, 10.222.222.0/24, 192.168.9.0/24
+
+
+🔵 服务器
+
+启动 wg:  sudo wg-quick up /root/WireGuardNoDEL.conf
+停止 wg:  sudo wg-quick down /root/WireGuardNoDEL.conf
+查看状态:  wg 
+
+
+
+🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵 Client Config: Ros_CHR 
+
+🔵 ros 基础设置
+
+- ros reset all 
+- ros bridge 所有网卡并启用dhcp.
+
+🔵 wg 配置 
+
+🔶 创建vpn网卡 
+
+	web >> wireguard >> wireguard >> add new >>
+    	name: wgClientRos 
+
+		创建网卡 会自动生成密钥.
+
+
+🔶 给VPN 网卡设置IP 
+
+	web >> ip >> address >> add 
+	    address : 10.0.0.92/24 
+		interface: wgClientRos
+
+
+🔶 配置peer 连服务器
+    web >> wireguard >> peers >> add new 
+	interface: wgClientRos
+	public key:  服务器的公钥! (服务器上用 wg 命令可以看到公钥)
+	private key: 可忽略!
+	endpoint: 服务器ip 或者域名
+	endpoint port: 服务器 vpn 的端口 4455 (服务器上用 wg 命令可以看端口)
+	keepalive: 25 秒. 没公网ip的那端 必须设置.
+
+
+🔵 客户端 NAT 功能 ( masquerade )
+	我们这边的客户端是路由器.  真正要访问的设备是在路由器后面的.
+	所有要再加一个NAT. 
+	如果你的vpn客户端是直接安装在手机/电脑上. 可以不用这个.
+
+
+	服务器 可以平10.111.111.92 也就是路由器的ip.
+	但是不能ping 10.111.111.1  内网的其他设备.
+
+	ros 的ip转发默认开启的. 应该是ros 防火墙配置问题.
+
+	连接两个不同的网段 是需要nat 功能的. 
+	比如路由器最常见的是连接内网和互联网. 明显两个不同的网断.
+	这边vpn的网段是10.0.0.0/24  和你要访问的内网 10.111.111.0/24 也是不一样的.
+
+	/ip firewall nat add chain=srcnat src-address=10.0.0.0/24 action=masquerade
+
+	❗️ 只需要  src-address=10.0.0.0/24 改成你自己vpn网断就行 ❗️
+
+
